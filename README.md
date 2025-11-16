@@ -151,15 +151,6 @@ Please follow the existing coding style and ensure documentation is updated.</p>
 <!-- <h2 id="license">📜 License</h2> -->
 <!-- <p>Licensed under the <strong>MIT License</strong>.</p> -->
 
-<hr>
-
-<h2 id="authors">👤 Authors / Maintainers</h2>
-<ul>
-  <li><strong>Anum Tariq</strong></li>
-  <li><strong>Sajjad Ali</strong></li>
-  <li><strong>Taha Ali</strong></li>
-  <li><strong>Yasir Ali</strong></li>
-</ul>
 
 <!--  <hr>
 
