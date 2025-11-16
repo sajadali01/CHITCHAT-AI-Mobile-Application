@@ -2,6 +2,7 @@ const { chatWithGroq } = require("../aiService");
 const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
 const { getIO } = require('../utils/socket');
+const mongoose = require('mongoose');
 
 const resolveUserId = async (req) => {
   // Try to get MongoDB _id from req.user (if already populated)
@@ -50,7 +51,9 @@ exports.getMessages = async (req, res) => {
       const messageData = {
         id: msg._id,
         text: msg.content,
-        senderId: msg.user,
+        senderId: typeof msg.user === 'object' 
+          ? (msg.user._id?.toString() || msg.user.toString())
+          : msg.user?.toString() || String(msg.user),
         senderName: 'Unknown', // Will be updated below
         timestamp: msg.createdAt,
         isAI: false,
@@ -67,21 +70,59 @@ exports.getMessages = async (req, res) => {
     });
 
     // Get user data for user messages only
-    const userMessageIds = messages
-      .filter(msg => !msg.isAI)
-      .map(msg => msg.user)
-      .filter(userId => userId && typeof userId === 'object'); // Only ObjectIds
+    // Handle both ObjectId and String types for user field
+    const userMessageIds = [];
+    
+    messages.forEach((msg) => {
+      if (!msg.isAI && msg.user) {
+        let userId = null;
+        
+        if (typeof msg.user === 'object') {
+          // If populated or ObjectId
+          userId = msg.user._id || msg.user;
+        } else if (typeof msg.user === 'string') {
+          // If string, validate and convert to ObjectId
+          if (mongoose.Types.ObjectId.isValid(msg.user)) {
+            userId = new mongoose.Types.ObjectId(msg.user);
+          }
+        }
+        
+        if (userId && !userMessageIds.some(id => id.toString() === userId.toString())) {
+          userMessageIds.push(userId);
+        }
+      }
+    });
 
     if (userMessageIds.length > 0) {
       const users = await User.find({ _id: { $in: userMessageIds } });
-      const userMap = new Map(users.map(user => [user._id.toString(), user]));
+      const userMap = new Map();
+      
+      // Create map with string keys for lookup
+      users.forEach(user => {
+        const idString = user._id.toString();
+        userMap.set(idString, user);
+      });
 
       // Update sender names for user messages
       mapped.forEach((msg, index) => {
         if (!msg.isAI && messages[index].user) {
-          const user = userMap.get(messages[index].user.toString());
-          if (user) {
-            msg.senderName = user.name;
+          const userField = messages[index].user;
+          let userIdString = null;
+          
+          // Convert user field to string ID for lookup
+          if (typeof userField === 'object') {
+            userIdString = (userField._id || userField).toString();
+          } else if (typeof userField === 'string') {
+            userIdString = userField;
+          }
+          
+          if (userIdString) {
+            const user = userMap.get(userIdString);
+            if (user) {
+              msg.senderName = user.name;
+            } else {
+              console.warn('⚠️ User not found for message:', messages[index]._id, 'user ID:', userIdString);
+            }
           }
         }
       });
@@ -106,13 +147,18 @@ exports.sendMessage = async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ _id: uid });
+    // Ensure uid is converted to ObjectId
+    const userId = mongoose.Types.ObjectId.isValid(uid) 
+      ? new mongoose.Types.ObjectId(uid) 
+      : uid;
+    
+    const user = await User.findOne({ _id: userId });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
     const newMsg = new ChatMessage({
-      user: uid,
+      user: userId, // Use ObjectId instead of raw uid
       content,
       groupId,
       createdAt: new Date(),
@@ -123,7 +169,7 @@ exports.sendMessage = async (req, res) => {
     const messageData = {
       id: newMsg._id,
       text: newMsg.content,
-      senderId: newMsg.user?._id,
+      senderId: newMsg.user?._id?.toString() || newMsg.user?.toString() || uid.toString(),
       senderName: newMsg.user?.name || 'Unknown',
       timestamp: newMsg.createdAt,
       isAI: false,

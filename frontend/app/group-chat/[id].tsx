@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -61,7 +61,8 @@ export default function GroupChatScreen() {
   console.log('ID : ', id);
   const [messages, setMessages] = useState<Message[]>([]);
   const [group, setGroup] = useState<Group | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingGroup, setLoadingGroup] = useState(true); // Only for group data
+  const [loadingMessages, setLoadingMessages] = useState(false); // For messages (non-blocking)
   const [aiTyping, setAiTyping] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
@@ -85,6 +86,10 @@ export default function GroupChatScreen() {
 
   const storageKey = `${user?.id}_group_${id}_messages`;
 
+  const scrollToBottom = useCallback(() => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+  }, []);
+
   // Socket.IO setup
   useEffect(() => {
     if (user?.id && id) {
@@ -103,20 +108,34 @@ export default function GroupChatScreen() {
 
       // Listen for new messages
       socket.on('newMessage', (message: Message) => {
-        console.log('📨 Received new message:', message);
-        // Don't add if it's from the current user (already added)
-        if (message.senderId !== user.id) {
-          setMessages((prev) => {
-            const updatedMessages = [...prev, message];
-            // Save the last message when receiving new messages
-            const lastMessage = updatedMessages[updatedMessages.length - 1];
-            AsyncStorage.setItem(
-              `@lastMessage_${id}`,
-              JSON.stringify({ lastMessage })
-            ).catch(() => console.warn('Failed to save last message'));
-            return updatedMessages;
-          });
-        }
+        console.log('📨 Received new message via Socket.IO:', message);
+        setMessages((prev) => {
+          // Deduplicate: Check if message already exists by ID
+          const messageExists = prev.some((msg) => msg.id === message.id);
+          if (messageExists) {
+            console.log('⚠️ Message already exists, skipping:', message.id);
+            return prev;
+          }
+          
+          // Skip if this is a message from the current user (we already added it optimistically)
+          // The server response will update the temp message, so we don't need Socket.IO for our own messages
+          if (message.senderId === user?.id && !message.isAI) {
+            console.log('⚠️ Skipping own message from Socket.IO (already handled):', message.id);
+            return prev;
+          }
+          
+          // Add new message
+          const updatedMessages = [...prev, message];
+          
+          // Save the last message when receiving new messages
+          const lastMessage = updatedMessages[updatedMessages.length - 1];
+          AsyncStorage.setItem(
+            `@lastMessage_${id}`,
+            JSON.stringify({ lastMessage })
+          ).catch(() => console.warn('Failed to save last message'));
+          
+          return updatedMessages;
+        });
       });
 
       return () => {
@@ -128,14 +147,22 @@ export default function GroupChatScreen() {
   }, [user?.id, id]);
 
   useEffect(() => {
+    // Load group data first (needed for header)
     fetchGroupData();
+    // Load messages in background (non-blocking)
     loadMessagesFromStorage();
     fetchAllGroups();
   }, [id]);
 
   useEffect(() => {
-    if (!loading) saveMessagesToStorage(messages);
-  }, [messages]);
+    if (!loadingMessages && messages.length > 0) {
+      saveMessagesToStorage(messages);
+      // Scroll to bottom when messages finish loading
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    }
+  }, [loadingMessages, messages, scrollToBottom]);
 
   // Add logging for debugging duplicate keys
   useEffect(() => {
@@ -150,8 +177,8 @@ export default function GroupChatScreen() {
   }, [messages, allGroups]);
 
   const fetchGroupData = async () => {
-    // console.log('Fetching group data for ID : ', id);
     try {
+      setLoadingGroup(true);
       const groupData = await getGroup(id!);
       setGroup(groupData);
     } catch {
@@ -162,6 +189,8 @@ export default function GroupChatScreen() {
         onConfirm: () =>
           setConfirmationModal({ ...confirmationModal, visible: false }),
       });
+    } finally {
+      setLoadingGroup(false);
     }
   };
 
@@ -173,55 +202,60 @@ export default function GroupChatScreen() {
 
   const loadMessagesFromStorage = async () => {
     try {
-      setLoading(true);
-      // const stored = await AsyncStorage.getItem(storageKey);
-      let loadedFromStorage = false;
-      // if (stored) {
-      //   const parsed = JSON.parse(stored);
-      //   if (parsed.messages && parsed.messages.length > 0) {
-      //     setMessages(parsed.messages);
-      //     setPinnedMessage(parsed.pinnedMessage || null);
-      //     setReplyTo(null);
-      //     loadedFromStorage = true;
-      //     console.log('Loaded messages from storage:', parsed.messages.length);
-      //   }
-      // }
-      if (!loadedFromStorage) {
-        console.log('Fetching messages from backend for group:', id);
-        const fetched = await getMessages(id!);
-        let mapped = fetched.map((msg) => ({
-          id: msg.id, // Now backend sends 'id'
-          text: msg.text,
-          senderId: msg.senderId,
-          senderName: msg.senderName,
-          timestamp: msg.timestamp,
-          isAI: msg.isAI,
-        }));
-
-        // Filter out messages sent before the user's clear time
-        const clearKey = `${user?.id}_group_${id}_clearedAt`;
-        const clearedAt = await AsyncStorage.getItem(clearKey);
-        if (clearedAt) {
-          mapped = mapped.filter(
-            (msg) => new Date(msg.timestamp).getTime() > Number(clearedAt)
-          );
+      setLoadingMessages(true);
+      
+      // Try to load from local storage first for instant display
+      const stored = await AsyncStorage.getItem(storageKey);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.messages && parsed.messages.length > 0) {
+            // Show cached messages immediately
+            setMessages(parsed.messages);
+            setPinnedMessage(parsed.pinnedMessage || null);
+            setReplyTo(null);
+            console.log('✅ Loaded cached messages:', parsed.messages.length);
+          }
+        } catch (parseError) {
+          console.log('Failed to parse stored messages');
         }
-
-        setMessages(mapped);
-        setPinnedMessage(null);
-        setReplyTo(null);
       }
+
+      // Fetch fresh messages from backend in background
+      console.log('📡 Fetching messages from backend for group:', id);
+      const fetched = await getMessages(id!);
+      let mapped = fetched.map((msg) => ({
+        id: msg.id,
+        text: msg.text,
+        senderId: msg.senderId,
+        senderName: msg.senderName,
+        timestamp: msg.timestamp,
+        isAI: msg.isAI,
+        isForwarded: msg.isForwarded,
+        forwardedFrom: msg.forwardedFrom,
+        forwardedFromGroup: msg.forwardedFromGroup,
+      }));
+
+      // Filter out messages sent before the user's clear time
+      const clearKey = `${user?.id}_group_${id}_clearedAt`;
+      const clearedAt = await AsyncStorage.getItem(clearKey);
+      if (clearedAt) {
+        mapped = mapped.filter(
+          (msg) => new Date(msg.timestamp).getTime() > Number(clearedAt)
+        );
+      }
+
+      // Update with fresh messages from backend
+      setMessages(mapped);
+      setPinnedMessage(null);
+      setReplyTo(null);
+      console.log('✅ Loaded fresh messages:', mapped.length);
     } catch (err: any) {
-      setConfirmationModal({
-        visible: true,
-        title: 'Error',
-        subtitle: 'Failed to load chat data: ' + (err.message || ''),
-        onConfirm: () =>
-          setConfirmationModal({ ...confirmationModal, visible: false }),
-      });
-      console.log('Error loading messages:', err);
+      console.error('❌ Error loading messages:', err);
+      // Don't show error modal for message loading - just log it
+      // User can still use the chat and receive real-time messages via Socket.IO
     } finally {
-      setLoading(false);
+      setLoadingMessages(false);
     }
   };
 
@@ -255,8 +289,26 @@ export default function GroupChatScreen() {
     try {
       // Always pass groupId (id!) to sendMessage
       const serverMessage = await sendMessage(id!, text, tempMessage.replyTo); // ✅ real backend
-      setMessages((prev) =>
-        prev.map((msg) =>
+      
+      // Replace temp message with server message (which has the real ID)
+      // Socket.IO will also emit this, but we filter out our own messages in the Socket listener
+      setMessages((prev) => {
+        // Check if message already exists (from Socket.IO, though unlikely for our own message)
+        const existingIndex = prev.findIndex((msg) => msg.id === serverMessage.id);
+        if (existingIndex !== -1) {
+          // Message already exists, just update it
+          const updated = [...prev];
+          updated[existingIndex] = {
+            ...serverMessage,
+            senderId: user!.id,
+            senderName: user!.name,
+            replyTo: tempMessage.replyTo,
+          };
+          return updated;
+        }
+        
+        // Replace temp message with server message
+        return prev.map((msg) =>
           msg.id === tempId
             ? {
                 ...serverMessage,
@@ -265,8 +317,8 @@ export default function GroupChatScreen() {
                 replyTo: tempMessage.replyTo,
               }
             : msg
-        )
-      );
+        );
+      });
       // Save the actual last message from the conversation (not just the user's sent message)
       const allMessages = [...messages, serverMessage];
       const lastMessage = allMessages[allMessages.length - 1];
@@ -374,9 +426,6 @@ export default function GroupChatScreen() {
       return false;
     }
   };
-
-  const scrollToBottom = () =>
-    flatListRef.current?.scrollToEnd({ animated: true });
 
   const handleDeleteMessage = (msgId: string) => {
     setConfirmationModal({
@@ -486,7 +535,15 @@ export default function GroupChatScreen() {
     }
   };
 
-  if (loading) return <Loader />;
+  // Show minimal loader only for group data (needed for header)
+  // Messages load in background without blocking UI
+  if (loadingGroup) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <Loader />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
@@ -604,7 +661,6 @@ export default function GroupChatScreen() {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <ChatBubble
-                key={item.id}
                 message={item}
                 isCurrentUser={item.senderId === user?.id}
                 onReply={(msg) => setReplyTo(msg)}

@@ -7,11 +7,14 @@ import {
   Modal,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Platform,
+  Clipboard,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 
 import { useTheme } from '@/context/ThemeContext';
 import { Message } from '@/types';
-import { Bot } from 'lucide-react-native';
+import { Bot, Copy } from 'lucide-react-native';
 
 interface ChatBubbleProps {
   message: Message;
@@ -50,6 +53,42 @@ export default function ChatBubble({
 
   const handleLongPress = () => {
     if (useLongPressReply) setModalVisible(true);
+  };
+
+  const handleCopy = async () => {
+    try {
+      const textToCopy = message.text;
+      if (Platform.OS === 'web') {
+        // Use Web Clipboard API
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(textToCopy);
+        } else {
+          // Fallback for older browsers
+          const textArea = document.createElement('textarea');
+          textArea.value = textToCopy;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+        }
+      } else {
+        // Use React Native Clipboard (deprecated but still works)
+        Clipboard.setString(textToCopy);
+      }
+      setModalVisible(false);
+      Toast.show({
+        type: 'success',
+        text1: 'Copied to clipboard',
+        position: 'bottom',
+      });
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to copy',
+        position: 'bottom',
+      });
+    }
   };
 
 
@@ -170,51 +209,80 @@ export default function ChatBubble({
       >
         <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
-              <TouchableOpacity
-                onPress={() => {
-                  setModalVisible(false);
-                  onReply?.(message);
-                }}
-              >
-                <Text style={[styles.modalOption, { color: colors.text }]}>Reply</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setModalVisible(false);
-                  onDelete?.(message);
-                }}
-              >
-                <Text style={[styles.modalOption, { color: '#FF5A5F' }]}>Delete</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setModalVisible(false);
-                  onPin?.(message);
-                }}
-              >
-                <Text style={[styles.modalOption, { color: colors.primary }]}>
-                  {pinnedMessageId === message.id ? 'Unpin' : 'Pin'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setModalVisible(false);
-                  onClearAll?.();
-                }}
-              >
-                <Text style={[styles.modalOption, { color: colors.primary }]}>Clear All</Text>
-              </TouchableOpacity>
-              {/* Forward option added here */}
-              <TouchableOpacity
-                onPress={() => {
-                  setModalVisible(false);
-                  onForward?.(message);
-                }}
-              >
-                <Text style={[styles.modalOption, { color: colors.primary }]}>Forward</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={[
+                styles.modalContent, 
+                { 
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                }
+              ]}>
+                <TouchableOpacity
+                  style={styles.modalOptionContainer}
+                  onPress={() => {
+                    setModalVisible(false);
+                    onReply?.(message);
+                  }}
+                >
+                  <Text style={[styles.modalOption, { color: colors.text }]}>Reply</Text>
+                </TouchableOpacity>
+                <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+                
+                <TouchableOpacity
+                  style={styles.modalOptionContainer}
+                  onPress={handleCopy}
+                >
+                  <Copy size={18} color={colors.primary} style={styles.modalIcon} />
+                  <Text style={[styles.modalOption, { color: colors.primary }]}>Copy</Text>
+                </TouchableOpacity>
+                <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+                
+                <TouchableOpacity
+                  style={styles.modalOptionContainer}
+                  onPress={() => {
+                    setModalVisible(false);
+                    onForward?.(message);
+                  }}
+                >
+                  <Text style={[styles.modalOption, { color: colors.primary }]}>Forward</Text>
+                </TouchableOpacity>
+                <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+                
+                <TouchableOpacity
+                  style={styles.modalOptionContainer}
+                  onPress={() => {
+                    setModalVisible(false);
+                    onPin?.(message);
+                  }}
+                >
+                  <Text style={[styles.modalOption, { color: colors.primary }]}>
+                    {pinnedMessageId === message.id ? 'Unpin' : 'Pin'}
+                  </Text>
+                </TouchableOpacity>
+                <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+                
+                <TouchableOpacity
+                  style={styles.modalOptionContainer}
+                  onPress={() => {
+                    setModalVisible(false);
+                    onClearAll?.();
+                  }}
+                >
+                  <Text style={[styles.modalOption, { color: colors.primary }]}>Clear All</Text>
+                </TouchableOpacity>
+                <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+                
+                <TouchableOpacity
+                  style={styles.modalOptionContainer}
+                  onPress={() => {
+                    setModalVisible(false);
+                    onDelete?.(message);
+                  }}
+                >
+                  <Text style={[styles.modalOption, { color: colors.error }]}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -262,23 +330,37 @@ const styles = StyleSheet.create({
   replyContent: { fontSize: 12 },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    borderRadius: 12,
-    paddingVertical: 12,
-    width: 220,
-    elevation: 6,
+    borderRadius: 16,
+    paddingVertical: 8,
+    width: 240,
+    borderWidth: 1,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  modalOption: {
+  modalOptionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 20,
+  },
+  modalOption: {
     fontSize: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-
+    fontWeight: '500',
+  },
+  modalIcon: {
+    marginRight: 12,
+  },
+  modalDivider: {
+    height: 1,
+    marginHorizontal: 12,
   },
   forwardedIndicator: {
     borderLeftWidth: 3,
