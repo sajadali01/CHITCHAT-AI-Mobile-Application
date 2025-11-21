@@ -20,7 +20,7 @@ import FloatingButton from '@/components/FloatingButton';
 import EmptyState from '@/components/EmptyState';
 import Loader from '@/components/Loader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getGroups } from '@/services/api';
+import { getGroups, togglePinGroup } from '@/services/api';
 import { Group } from '@/types';
 import Toast from 'react-native-toast-message';
 import { getMessages } from '@/services/api';
@@ -128,24 +128,34 @@ export default function ChatListScreen() {
     setSelectedGroupId(groupId);
   };
 
-  const handlePinGroup = (groupId: string) => {
-    setGroups((prev) => {
-      const group = prev.find((g) => g._id === groupId);
-      if (!group) return prev;
+  const handlePinGroup = async (groupId: string) => {
+    try {
+      const result = await togglePinGroup(groupId);
+      
+      setGroups((prev) => {
+        const group = prev.find((g) => g._id === groupId);
+        if (!group) return prev;
 
-      const updatedGroup = { ...group, pinned: !group.pinned };
-      const filtered = prev.filter((g) => g._id !== groupId);
+        const updatedGroup = { ...group, pinned: result.pinned };
+        const filtered = prev.filter((g) => g._id !== groupId);
 
-      if (updatedGroup.pinned) {
-        return [updatedGroup, ...filtered];
-      } else {
-        return [...filtered, updatedGroup].sort(
-          (a, b) =>
-            new Date(b.lastMessage?.timestamp || b.createdAt).getTime() -
-            new Date(a.lastMessage?.timestamp || a.createdAt).getTime()
-        );
-      }
-    });
+        if (updatedGroup.pinned) {
+          return [updatedGroup, ...filtered];
+        } else {
+          return [...filtered, updatedGroup].sort(
+            (a, b) =>
+              new Date(b.lastMessage?.timestamp || b.createdAt).getTime() -
+              new Date(a.lastMessage?.timestamp || a.createdAt).getTime()
+          );
+        }
+      });
+    } catch (error) {
+      console.error('Failed to toggle group pin:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to pin/unpin group',
+      });
+    }
   };
 
   const handleChatPress = (groupId: string) => {

@@ -14,6 +14,7 @@ export interface Message {
   senderName: string;
   timestamp: string;
   isAI: boolean;
+  pinned?: boolean;
   replyTo?: {
     senderName: string;
     text: string; 
@@ -30,5 +31,6 @@ export interface Group {
   members: string[];
   createdAt: string;
   pinned?: boolean;
+  pinnedMessageId?: string | { _id: string } | null;
   lastMessage?: Message;
 }

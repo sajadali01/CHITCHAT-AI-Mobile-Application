@@ -1,7 +1,7 @@
 import { Message } from '@/types';
 
 // Replace with your machine's IP address if using mobile device
-const API_URL = 'http://192.168.0.34:5000/api/chat/ai-message';
+const API_URL = 'http://10.138.62.96:5000/api/chat/ai-message';
 
 export async function generateAIResponse(
   userMessage: string,

@@ -31,12 +31,14 @@ import {
   generateSummary,
   deleteMessage as deleteMessageAPI,
   forwardMessage as forwardMessageAPI,
+  togglePinMessage as togglePinMessageAPI,
 } from '@/services/api';
 import { Message, Group } from '@/types';
 import io from 'socket.io-client';
+import Toast from 'react-native-toast-message';
 
 // Socket connection
-const SOCKET_URL = 'http://192.168.0.34:5000'; // Change to your backend URL
+const SOCKET_URL = 'http://10.138.62.96:5000'; // Change to your backend URL
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
   timeout: 10000,
@@ -66,6 +68,7 @@ export default function GroupChatScreen() {
   const [aiTyping, setAiTyping] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
+  const [pinnedMessageId, setPinnedMessageId] = useState<string | null>(null);
   const [confirmationModal, setConfirmationModal] = useState({
     visible: false,
     title: '',
@@ -181,6 +184,19 @@ export default function GroupChatScreen() {
       setLoadingGroup(true);
       const groupData = await getGroup(id!);
       setGroup(groupData);
+      
+      // Load pinned message if group has one
+      if (groupData.pinnedMessageId) {
+        // Find the pinned message in the messages array
+        // This will be set after messages are loaded
+        const pinnedMsgId = typeof groupData.pinnedMessageId === 'object' 
+          ? (groupData.pinnedMessageId._id || String(groupData.pinnedMessageId))
+          : String(groupData.pinnedMessageId);
+        // Store for later use when messages load
+        setPinnedMessageId(pinnedMsgId);
+      } else {
+        setPinnedMessageId(null);
+      }
     } catch {
       setConfirmationModal({
         visible: true,
@@ -234,6 +250,7 @@ export default function GroupChatScreen() {
         isForwarded: msg.isForwarded,
         forwardedFrom: msg.forwardedFrom,
         forwardedFromGroup: msg.forwardedFromGroup,
+        pinned: msg.pinned || false,
       }));
 
       // Filter out messages sent before the user's clear time
@@ -247,8 +264,20 @@ export default function GroupChatScreen() {
 
       // Update with fresh messages from backend
       setMessages(mapped);
-      setPinnedMessage(null);
       setReplyTo(null);
+      
+      // Set pinned message if group has one
+      if (pinnedMessageId) {
+        const pinned = mapped.find((msg) => msg.id === pinnedMessageId || msg.id === pinnedMessageId.toString());
+        if (pinned) {
+          setPinnedMessage(pinned);
+        } else {
+          setPinnedMessage(null);
+        }
+      } else {
+        setPinnedMessage(null);
+      }
+      
       console.log('✅ Loaded fresh messages:', mapped.length);
     } catch (err: any) {
       console.error('❌ Error loading messages:', err);
@@ -468,13 +497,30 @@ export default function GroupChatScreen() {
     });
   };
 
-  const handlePinMessage = (msg: Message) => {
-    const updated = pinnedMessage?.id === msg.id ? null : msg;
-    setPinnedMessage(updated);
-    AsyncStorage.setItem(
-      storageKey,
-      JSON.stringify({ messages, pinnedMessage: updated })
-    ).catch(() => console.warn('Failed to save pinned message'));
+  const handlePinMessage = async (msg: Message) => {
+    try {
+      const result = await togglePinMessageAPI(msg.id);
+      
+      if (result.pinned) {
+        setPinnedMessage(msg);
+      } else {
+        setPinnedMessage(null);
+      }
+      
+      // Update the group's pinned message ID
+      if (group) {
+        setGroup({
+          ...group,
+          pinnedMessageId: result.pinnedMessageId,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle message pin:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to pin/unpin message',
+      });
+    }
   };
 
   const handleForwardMessage = (msg: Message) => {

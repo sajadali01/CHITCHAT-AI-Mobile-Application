@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 
 // replace with your backend URL / IP
-const socket = io('http://192.168.0.34:5000', { transports: ['websocket'] });
+const socket = io('http://10.138.62.96:5000', { transports: ['websocket'] });
 
 export default function useOnlineUsers(currentUserId: string | undefined) {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);

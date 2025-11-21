@@ -112,13 +112,49 @@ exports.getGroupById = async (req, res) => {
   try {
     console.log("Request Params : ", req.params);
     // console.log('Fetching group by ID:', id);
-    const group = await Group.findById(id).populate('members', 'name email');;
+    const group = await Group.findById(id).populate('members', 'name email').populate('pinnedMessageId');
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
     res.status(200).json(group);
   } catch (error) {
     console.error('❌ Failed to fetch group by ID:', error.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * Pin/Unpin a group
+ * @route POST /api/groups/:id/pin
+ */
+exports.togglePinGroup = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user._id;
+
+  try {
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    // Check if user is a member
+    const isMember = group.members.some(
+      (member) => member.toString() === userId.toString()
+    );
+    if (!isMember) {
+      return res.status(403).json({ message: 'You are not a member of this group' });
+    }
+
+    // Toggle pin status
+    group.pinned = !group.pinned;
+    await group.save();
+
+    res.status(200).json({ 
+      message: group.pinned ? 'Group pinned' : 'Group unpinned',
+      pinned: group.pinned 
+    });
+  } catch (error) {
+    console.error('❌ Failed to toggle group pin:', error.message);
     res.status(500).json({ message: 'Server error' });
   }
 };

@@ -2,7 +2,7 @@ import { Group, Message, User } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
-const API_BASE_URL = 'http://192.168.0.34:5000/api'; // replace with your backend IP
+const API_BASE_URL = 'http://10.138.62.96:5000/api'; // replace with your backend IP
 
 // Helper to get stored Firebase token
 async function getAuthToken(): Promise<string | null> {
@@ -259,6 +259,48 @@ export async function forwardMessage(originalMessageId: string, targetGroupId: s
     const errorText = await res.text();
     console.log('API error:', res.status, errorText);
     throw new Error('Failed to forward message');
+  }
+  
+  return res.json();
+}
+
+// ====================
+// 📌 Pin/Unpin a message
+// ====================
+export async function togglePinMessage(messageId: string): Promise<{ pinned: boolean; pinnedMessageId: string | null }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_BASE_URL}/chat/messages/${messageId}/pin`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.log('API error:', res.status, errorText);
+    throw new Error('Failed to toggle message pin');
+  }
+  
+  return res.json();
+}
+
+// ====================
+// 📌 Pin/Unpin a group
+// ====================
+export async function togglePinGroup(groupId: string): Promise<{ pinned: boolean }> {
+  const token = await getAuthToken();
+  const res = await fetch(`${API_BASE_URL}/groups/${groupId}/pin`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.log('API error:', res.status, errorText);
+    throw new Error('Failed to toggle group pin');
   }
   
   return res.json();

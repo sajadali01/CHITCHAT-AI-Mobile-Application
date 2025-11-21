@@ -1,6 +1,7 @@
 const { chatWithGroq } = require("../aiService");
 const ChatMessage = require('../models/ChatMessage');
 const User = require('../models/User');
+const Group = require('../models/Group');
 const { getIO } = require('../utils/socket');
 const mongoose = require('mongoose');
 
@@ -44,6 +45,7 @@ exports.getMessages = async (req, res) => {
           senderName: 'AI Assistant',
           timestamp: msg.createdAt,
           isAI: true,
+          pinned: msg.pinned || false,
         };
       }
       
@@ -57,6 +59,7 @@ exports.getMessages = async (req, res) => {
         senderName: 'Unknown', // Will be updated below
         timestamp: msg.createdAt,
         isAI: false,
+        pinned: msg.pinned || false,
       };
 
       // Add forwarded message information if applicable
@@ -605,5 +608,63 @@ exports.sendAIMessage = async (req, res) => {
   } catch (error) {
     console.error("❌ AI error full:", error);
     res.status(500).json({ error: "Failed to get AI response" });
+  }
+};
+
+// @desc    Pin/Unpin a message in a group
+// @route   POST /api/chat/messages/:id/pin
+// @access  Private
+exports.togglePinMessage = async (req, res) => {
+  try {
+    const messageId = req.params.id;
+    const userId = await resolveUserId(req);
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    const message = await ChatMessage.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ message: 'Message not found' });
+    }
+
+    // Get the group to update pinnedMessageId
+    const group = await Group.findById(message.groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    // Check if user is a member of the group
+    const isMember = group.members.some(
+      (member) => member.toString() === userId.toString()
+    );
+    if (!isMember) {
+      return res.status(403).json({ message: 'You are not a member of this group' });
+    }
+
+    // Toggle pin status
+    message.pinned = !message.pinned;
+
+    if (message.pinned) {
+      // If pinning, set this as the pinned message for the group
+      group.pinnedMessageId = message._id;
+    } else {
+      // If unpinning, clear the pinned message if it's this one
+      if (group.pinnedMessageId && group.pinnedMessageId.toString() === messageId) {
+        group.pinnedMessageId = null;
+      }
+    }
+
+    await message.save();
+    await group.save();
+
+    res.status(200).json({
+      message: message.pinned ? 'Message pinned' : 'Message unpinned',
+      pinned: message.pinned,
+      pinnedMessageId: group.pinnedMessageId,
+    });
+  } catch (error) {
+    console.error('❌ Error toggling message pin:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };

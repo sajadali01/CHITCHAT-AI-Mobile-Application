@@ -72,4 +72,29 @@ router.get('/', groupController.getGroups);
  */
 router.get('/:id', groupController.getGroupById);
 
+/**
+ * @swagger
+ * /groups/{id}/pin:
+ *   post:
+ *     summary: Pin/Unpin a group
+ *     tags: [Groups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Group ID
+ *     responses:
+ *       200:
+ *         description: Group pin status toggled
+ *       404:
+ *         description: Group not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/:id/pin', authenticateUser, groupController.togglePinGroup);
+
 module.exports = router;

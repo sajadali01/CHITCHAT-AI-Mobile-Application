@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getMessages, sendMessage, sendAIMessage, generateSummary, deleteMessage, forwardMessage } = require('../controllers/chatController');
+const { getMessages, sendMessage, sendAIMessage, generateSummary, deleteMessage, forwardMessage, togglePinMessage } = require('../controllers/chatController');
 const authenticateUser = require('../middleware/firebaseAuth');
 
 /**
@@ -174,5 +174,29 @@ router.post('/messages/:id/forward', authenticateUser, forwardMessage);
  *         description: Server error
  */
 router.post('/messages/:id/delete', authenticateUser, deleteMessage);
+
+/**
+ * @swagger
+ * /chat/messages/{id}/pin:
+ *   post:
+ *     summary: Pin/Unpin a message
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Message ID
+ *     responses:
+ *       200:
+ *         description: Message pin status toggled
+ *       404:
+ *         description: Message not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/messages/:id/pin', authenticateUser, togglePinMessage);
 
 module.exports = router;

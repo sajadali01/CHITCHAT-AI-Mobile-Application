@@ -15,6 +15,7 @@ const chatMessageSchema = new mongoose.Schema({
   originalMessageId: { type: mongoose.Schema.Types.ObjectId, ref: 'ChatMessage' }, // Reference to original message
   forwardedFrom: { type: String }, // Name of the original sender
   forwardedFromGroup: { type: String }, // Name of the original group
+  pinned: { type: Boolean, default: false }, // Flag for pinned messages
 });
 
 module.exports = mongoose.model('ChatMessage', chatMessageSchema);

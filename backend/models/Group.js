@@ -13,6 +13,15 @@ const GroupSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    pinned: {
+      type: Boolean,
+      default: false,
+    },
+    pinnedMessageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ChatMessage',
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
